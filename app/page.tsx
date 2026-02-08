@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { toPng } from "html-to-image";
+import { toJpeg } from "html-to-image";
 
 interface CardData {
   senderUsername: string;
@@ -76,7 +76,7 @@ const handleDownload = useCallback(async () => {
     // 2. Reset transform so it's captured at full size (1:1)
     element.style.transform = "none";
     
-    const dataUrl = await toPng(element, { 
+    const dataUrl = await toJpeg(element, { 
       pixelRatio: 3, 
       quality: 1,
       // Ensure the capture size matches your fixed dimensions
