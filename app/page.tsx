@@ -17,6 +17,13 @@ function getFallbackAvatar(seed: string): string {
   return `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(seed)}&backgroundColor=9E7B9F`;
 }
 
+function capitalize(name: string): string {
+  return name
+    .split(" ")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 export default function ValentineCardPage() {
   const [step, setStep] = useState<"form" | "card">("form");
   const [senderUsername, setSenderUsername] = useState("");
@@ -64,39 +71,33 @@ export default function ValentineCardPage() {
     setLoading(false);
   };
 
-const handleDownload = useCallback(async () => {
-  if (!cardRef.current) return;
-  
-  const element = cardRef.current;
-  
-  // 1. Save current transform
-  const originalTransform = element.style.transform;
-  
-  try {
-    // 2. Reset transform so it's captured at full size (1:1)
-    element.style.transform = "none";
-    
-    const dataUrl = await toJpeg(element, { 
-      pixelRatio: 3, 
-      quality: 1,
-      // Ensure the capture size matches your fixed dimensions
-      width: 540,
-      height: 540 
-    });
+  const handleDownload = useCallback(async () => {
+    if (!cardRef.current) return;
 
-    // 3. Restore the transform immediately for the UI
-    element.style.transform = originalTransform;
+    const element = cardRef.current;
+    const originalTransform = element.style.transform;
 
-    const link = document.createElement("a");
-    link.download = `valentine-seismic-${cardData?.receiverName || "card"}.jpg`;
-    link.href = dataUrl;
-    link.click();
-  } catch (err) {
-    // 4. Clean up even if it fails
-    element.style.transform = originalTransform;
-    console.error("Failed to generate image:", err);
-  }
-}, [cardData, cardRef]);
+    try {
+      element.style.transform = "none";
+
+      const dataUrl = await toJpeg(element, {
+        pixelRatio: 3,
+        quality: 1,
+        width: 540,
+        height: 540,
+      });
+
+      element.style.transform = originalTransform;
+
+      const link = document.createElement("a");
+      link.download = `valentine-seismic-${cardData?.receiverName || "card"}.jpg`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      element.style.transform = originalTransform;
+      console.error("Failed to generate image:", err);
+    }
+  }, [cardData, cardRef]);
 
   return (
     <main className="min-h-screen bg-[#1a0e1e] flex items-center justify-center p-4">
@@ -214,23 +215,7 @@ function FormStep({
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   CARD — Uses /envelope.png as background image
-
-   The envelope image has this rough layout:
-   ┌──────────────────────────────────┐
-   │  (Seismic logo top-left)         │  <- already in image
-   │                                  │
-   │     ┌──── White letter ────┐     │  ~ top 12% to ~42%
-   │     │  (slightly tilted)   │     │
-   │     │                      │     │  <- We overlay text here:
-   │     │                      │     │     "Dear Name," + message
-   │     └──────────────────────┘     │
-   │        ┌── Envelope ──┐          │  ~ 40% to ~88%
-   │        │    ♥ heart    │         │
-   │        │               │         │  <- Sender info here
-   │        │               │         │
-   │        └───────────────┘         │
-   └──────────────────────────────────┘
+   CARD — Uses /envelope.jpg as background image
    ═══════════════════════════════════════════════════════════════════════ */
 
 function getMessageFontSize(message: string): number {
@@ -336,7 +321,6 @@ function CardStep({
         </div>
 
         {/* ── LETTER AREA: Receiver + Message ── */}
-        {/* Positioned lower on the white letter part of the envelope image */}
         <div style={{
           position: "absolute",
           top: "20%",
@@ -378,7 +362,7 @@ function CardStep({
               fontWeight: 700,
               lineHeight: 1.1,
             }}>
-              Dear {cardData.receiverName},
+              Dear {capitalize(cardData.receiverName)},
             </p>
           </div>
 
@@ -396,7 +380,6 @@ function CardStep({
         </div>
 
         {/* ── ENVELOPE AREA: Sender info ── */}
-        {/* Positioned over the pink envelope body, below the heart */}
         <div style={{
           position: "absolute",
           top: "70%",
@@ -429,7 +412,7 @@ function CardStep({
             color: "#5a3050",
             fontWeight: 700,
           }}>
-            With love, {cardData.senderName} 💌
+            With love, {capitalize(cardData.senderName)} ♥
           </p>
         </div>
 
