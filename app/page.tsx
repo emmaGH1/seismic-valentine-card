@@ -24,6 +24,38 @@ function capitalize(name: string): string {
     .join(" ");
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   MUSIC PLAYER — place your audio file as /public/music.mp3
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function MusicToggle({ isPlaying, onToggle }: { isPlaying: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#9E7B9F]/30 hover:border-[#9E7B9F]/60 transition-all group"
+      title={isPlaying ? "Pause music" : "Play music"}
+    >
+      {/* Animated bars when playing, static when paused */}
+      <div className="flex items-end gap-[2px] h-3">
+        {[1, 2, 3, 4].map((i) => (
+          <div
+            key={i}
+            className="w-[3px] rounded-full"
+            style={{
+              backgroundColor: isPlaying ? "#9E7B9F" : "rgba(158,123,159,0.3)",
+              height: isPlaying ? undefined : "40%",
+              animation: isPlaying ? `musicBar 0.8s ease-in-out ${i * 0.15}s infinite alternate` : "none",
+            }}
+          />
+        ))}
+      </div>
+      <span className="text-[#9E7B9F]/60 text-[10px] uppercase tracking-wider">
+        {isPlaying ? "♫" : "♪"}
+      </span>
+    </button>
+  );
+}
+
 export default function ValentineCardPage() {
   const [step, setStep] = useState<"form" | "card">("form");
   const [senderUsername, setSenderUsername] = useState("");
@@ -36,6 +68,38 @@ export default function ValentineCardPage() {
   const [cardData, setCardData] = useState<CardData | null>(null);
   const [loading, setLoading] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+
+  // Music state
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  // Initialize audio and attempt autoplay
+  useEffect(() => {
+    const audio = new Audio("/music.mp3");
+    audio.loop = true;
+    audio.volume = 0.4;
+    audioRef.current = audio;
+
+    // Try autoplay — browsers may block this
+    audio.play()
+      .then(() => setIsPlaying(true))
+      .catch(() => setIsPlaying(false)); // Blocked, user will click to play
+
+    return () => {
+      audio.pause();
+      audio.src = "";
+    };
+  }, []);
+
+  const toggleMusic = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+    }
+  };
 
   const handleGenerate = async () => {
     if (!senderName.trim() || !receiverName.trim()) return;
@@ -111,9 +175,11 @@ export default function ValentineCardPage() {
           receiverName={receiverName} setReceiverName={setReceiverName}
           message={message} setMessage={setMessage}
           onGenerate={handleGenerate} loading={loading}
+          isPlaying={isPlaying} onToggleMusic={toggleMusic}
         />
       ) : (
-        <CardStep cardData={cardData!} cardRef={cardRef} onDownload={handleDownload} onBack={() => setStep("form")} />
+        <CardStep cardData={cardData!} cardRef={cardRef} onDownload={handleDownload} onBack={() => setStep("form")}
+          isPlaying={isPlaying} onToggleMusic={toggleMusic} />
       )}
     </main>
   );
@@ -130,6 +196,7 @@ function FormStep({
   receiverName, setReceiverName,
   message, setMessage,
   onGenerate, loading,
+  isPlaying, onToggleMusic,
 }: {
   senderUsername: string; setSenderUsername: (v: string) => void;
   senderName: string; setSenderName: (v: string) => void;
@@ -137,6 +204,7 @@ function FormStep({
   receiverName: string; setReceiverName: (v: string) => void;
   message: string; setMessage: (v: string) => void;
   onGenerate: () => void; loading: boolean;
+  isPlaying: boolean; onToggleMusic: () => void;
 }) {
   const isValid = senderName.trim() && receiverName.trim();
 
@@ -147,7 +215,8 @@ function FormStep({
         <h1 className="text-4xl md:text-5xl font-bold text-white mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>
           Valentine&apos;s Card
         </h1>
-        <p className="text-[#9E7B9F]/60 text-sm">Send love to your favorite Seismic fren</p>
+        <p className="text-[#9E7B9F]/60 text-sm mb-3">Send love to your favorite Seismic fren</p>
+        <MusicToggle isPlaying={isPlaying} onToggle={onToggleMusic} />
       </div>
 
       <div className="relative bg-[#f5ede8] rounded-sm shadow-2xl overflow-hidden">
@@ -229,11 +298,14 @@ function getMessageFontSize(message: string): number {
 
 function CardStep({
   cardData, cardRef, onDownload, onBack,
+  isPlaying, onToggleMusic,
 }: {
   cardData: CardData;
   cardRef: React.RefObject<HTMLDivElement | null>;
   onDownload: () => void;
   onBack: () => void;
+  isPlaying: boolean;
+  onToggleMusic: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const messageFontSize = getMessageFontSize(cardData.message);
@@ -254,6 +326,8 @@ function CardStep({
 
   return (
     <div className="w-full max-w-lg relative z-10 flex flex-col items-center gap-6 animate-fadeIn">
+      {/* Music toggle on card view */}
+      <MusicToggle isPlaying={isPlaying} onToggle={onToggleMusic} />
       {/* Responsive wrapper — scales the fixed-size card to fit screen */}
       <div
         ref={containerRef}
