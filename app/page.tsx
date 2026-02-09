@@ -72,18 +72,45 @@ export default function ValentineCardPage() {
   // Music state
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const hasUnmutedRef = useRef(false);
 
-  // Initialize audio and attempt autoplay
+  // Initialize audio — start muted to bypass autoplay restrictions
   useEffect(() => {
     const audio = new Audio("/music.mp3");
     audio.loop = true;
     audio.volume = 0.4;
     audioRef.current = audio;
 
-    // Try autoplay — browsers may block this
+    // Try autoplay with sound first
     audio.play()
-      .then(() => setIsPlaying(true))
-      .catch(() => setIsPlaying(false)); // Blocked, user will click to play
+      .then(() => {
+        setIsPlaying(true);
+        hasUnmutedRef.current = true;
+      })
+      .catch(() => {
+        // Browser blocked it — start muted, unmute on first interaction
+        audio.muted = true;
+        audio.play().catch(() => {}); // muted autoplay usually works
+
+        const unmute = () => {
+          if (!hasUnmutedRef.current && audioRef.current) {
+            audioRef.current.muted = false;
+            audioRef.current.play()
+              .then(() => {
+                setIsPlaying(true);
+                hasUnmutedRef.current = true;
+              })
+              .catch(() => {});
+          }
+          document.removeEventListener("click", unmute);
+          document.removeEventListener("touchstart", unmute);
+          document.removeEventListener("keydown", unmute);
+        };
+
+        document.addEventListener("click", unmute);
+        document.addEventListener("touchstart", unmute);
+        document.addEventListener("keydown", unmute);
+      });
 
     return () => {
       audio.pause();
