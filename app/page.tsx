@@ -24,38 +24,6 @@ function capitalize(name: string): string {
     .join(" ");
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
-   MUSIC PLAYER — place your audio file as /public/music.mp3
-   ═══════════════════════════════════════════════════════════════════════ */
-
-function MusicToggle({ isPlaying, onToggle }: { isPlaying: boolean; onToggle: () => void }) {
-  return (
-    <button
-      onClick={onToggle}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#9E7B9F]/30 hover:border-[#9E7B9F]/60 transition-all group"
-      title={isPlaying ? "Pause music" : "Play music"}
-    >
-      {/* Animated bars when playing, static when paused */}
-      <div className="flex items-end gap-[2px] h-3">
-        {[1, 2, 3, 4].map((i) => (
-          <div
-            key={i}
-            className="w-[3px] rounded-full"
-            style={{
-              backgroundColor: isPlaying ? "#9E7B9F" : "rgba(158,123,159,0.3)",
-              height: isPlaying ? undefined : "40%",
-              animation: isPlaying ? `musicBar 0.8s ease-in-out ${i * 0.15}s infinite alternate` : "none",
-            }}
-          />
-        ))}
-      </div>
-      <span className="text-[#9E7B9F]/60 text-[10px] uppercase tracking-wider">
-        {isPlaying ? "♫" : "♪"}
-      </span>
-    </button>
-  );
-}
-
 export default function ValentineCardPage() {
   const [step, setStep] = useState<"form" | "card">("form");
   const [senderUsername, setSenderUsername] = useState("");
@@ -69,52 +37,46 @@ export default function ValentineCardPage() {
   const [loading, setLoading] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // Music state
+  // Music
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const hasUnmutedRef = useRef(false);
+  const musicStartedRef = useRef(false);
 
-  // Initialize audio — start muted to bypass autoplay restrictions
   useEffect(() => {
+    // Try autoplay on load (works on desktop usually)
     const audio = new Audio("/music.mp3");
     audio.loop = true;
     audio.volume = 0.4;
     audioRef.current = audio;
 
-    // Try autoplay with sound first
     audio.play()
-      .then(() => {
-        setIsPlaying(true);
-        hasUnmutedRef.current = true;
-      })
-      .catch(() => {
-        // Browser blocked it — start muted, unmute on first interaction
-        audio.muted = true;
-        audio.play().catch(() => {}); // muted autoplay usually works
+      .then(() => { setIsPlaying(true); musicStartedRef.current = true; })
+      .catch(() => {}); // blocked, we'll try on interaction
 
-        const unmute = () => {
-          if (!hasUnmutedRef.current && audioRef.current) {
-            audioRef.current.muted = false;
-            audioRef.current.play()
-              .then(() => {
-                setIsPlaying(true);
-                hasUnmutedRef.current = true;
-              })
-              .catch(() => {});
-          }
-          document.removeEventListener("click", unmute);
-          document.removeEventListener("touchstart", unmute);
-          document.removeEventListener("keydown", unmute);
-        };
+    // On first interaction, start music if it hasn't started yet
+    // iOS requires audio.play() in the SAME call stack as user gesture
+    const playOnInteraction = () => {
+      if (musicStartedRef.current) return cleanup();
+      if (audioRef.current) {
+        audioRef.current.play()
+          .then(() => { setIsPlaying(true); musicStartedRef.current = true; })
+          .catch(() => {});
+      }
+      cleanup();
+    };
 
-        document.addEventListener("click", unmute);
-        document.addEventListener("touchstart", unmute);
-        document.addEventListener("keydown", unmute);
-      });
+    const cleanup = () => {
+      document.removeEventListener("click", playOnInteraction, true);
+      document.removeEventListener("touchend", playOnInteraction, true);
+    };
+
+    document.addEventListener("click", playOnInteraction, true);
+    document.addEventListener("touchend", playOnInteraction, true);
 
     return () => {
       audio.pause();
       audio.src = "";
+      cleanup();
     };
   }, []);
 
@@ -135,7 +97,6 @@ export default function ValentineCardPage() {
     let senderAvatar: string | null = null;
     let receiverAvatar: string | null = null;
 
-    // Try Discord bot avatars if usernames provided
     if (senderUsername.trim()) {
       try {
         const res = await fetch(`/api/discord-avatar?username=${encodeURIComponent(senderUsername.trim())}`);
@@ -164,36 +125,20 @@ export default function ValentineCardPage() {
 
   const handleDownload = useCallback(async () => {
     if (!cardRef.current) return;
-
-    const element = cardRef.current;
-    const originalTransform = element.style.transform;
-
     try {
-      element.style.transform = "none";
-
-      const dataUrl = await toJpeg(element, {
-        pixelRatio: 3,
-        quality: 1,
-        width: 540,
-        height: 540,
-      });
-
-      element.style.transform = originalTransform;
-
+      const dataUrl = await toJpeg(cardRef.current, { pixelRatio: 2, quality: 0.92 });
       const link = document.createElement("a");
       link.download = `valentine-seismic-${cardData?.receiverName || "card"}.jpg`;
       link.href = dataUrl;
       link.click();
     } catch (err) {
-      element.style.transform = originalTransform;
-      console.error("Failed to generate image:", err);
+      console.error("Download failed:", err);
     }
-  }, [cardData, cardRef]);
+  }, [cardData]);
 
   return (
     <main className="min-h-screen bg-[#1a0e1e] flex items-center justify-center p-4">
-      <div className="fixed inset-0 opacity-[0.03] pointer-events-none"
-        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E")` }} />
+      <MusicToggle isPlaying={isPlaying} onToggle={toggleMusic} />
       {step === "form" ? (
         <FormStep
           senderUsername={senderUsername} setSenderUsername={setSenderUsername}
@@ -202,13 +147,38 @@ export default function ValentineCardPage() {
           receiverName={receiverName} setReceiverName={setReceiverName}
           message={message} setMessage={setMessage}
           onGenerate={handleGenerate} loading={loading}
-          isPlaying={isPlaying} onToggleMusic={toggleMusic}
         />
       ) : (
-        <CardStep cardData={cardData!} cardRef={cardRef} onDownload={handleDownload} onBack={() => setStep("form")}
-          isPlaying={isPlaying} onToggleMusic={toggleMusic} />
+        <CardStep
+          cardData={cardData!} cardRef={cardRef}
+          onDownload={handleDownload} onBack={() => setStep("form")}
+        />
       )}
     </main>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MUSIC TOGGLE
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function MusicToggle({ isPlaying, onToggle }: { isPlaying: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      className="fixed top-4 right-4 z-50 w-8 h-8 flex items-center justify-center rounded-full bg-[#6D4C6F]/40 hover:bg-[#6D4C6F]/60 transition-all"
+      title={isPlaying ? "Mute" : "Unmute"}
+    >
+      {isPlaying ? (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+          <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+        </svg>
+      ) : (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="rgba(255,255,255,0.5)">
+          <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+        </svg>
+      )}
+    </button>
   );
 }
 
@@ -223,7 +193,6 @@ function FormStep({
   receiverName, setReceiverName,
   message, setMessage,
   onGenerate, loading,
-  isPlaying, onToggleMusic,
 }: {
   senderUsername: string; setSenderUsername: (v: string) => void;
   senderName: string; setSenderName: (v: string) => void;
@@ -231,7 +200,6 @@ function FormStep({
   receiverName: string; setReceiverName: (v: string) => void;
   message: string; setMessage: (v: string) => void;
   onGenerate: () => void; loading: boolean;
-  isPlaying: boolean; onToggleMusic: () => void;
 }) {
   const isValid = senderName.trim() && receiverName.trim();
 
@@ -242,8 +210,7 @@ function FormStep({
         <h1 className="text-4xl md:text-5xl font-bold text-white mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>
           Valentine&apos;s Card
         </h1>
-        <p className="text-[#9E7B9F]/60 text-sm mb-3">Send love to your favorite Seismic fren</p>
-        <MusicToggle isPlaying={isPlaying} onToggle={onToggleMusic} />
+        <p className="text-[#9E7B9F]/60 text-sm">Send love to your favorite Seismic fren</p>
       </div>
 
       <div className="relative bg-[#f5ede8] rounded-sm shadow-2xl overflow-hidden">
@@ -311,230 +278,210 @@ function FormStep({
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   CARD — Uses /envelope.jpg as background image
+   CARD — Fully fluid, no CSS transform. Scales naturally on all screens.
    ═══════════════════════════════════════════════════════════════════════ */
-
-function getMessageFontSize(message: string): number {
-  const len = message.length;
-  if (len <= 40) return 24;
-  if (len <= 80) return 20;
-  if (len <= 120) return 18;
-  if (len <= 160) return 16;
-  return 14;
-}
 
 function CardStep({
   cardData, cardRef, onDownload, onBack,
-  isPlaying, onToggleMusic,
 }: {
   cardData: CardData;
   cardRef: React.RefObject<HTMLDivElement | null>;
   onDownload: () => void;
   onBack: () => void;
-  isPlaying: boolean;
-  onToggleMusic: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const messageFontSize = getMessageFontSize(cardData.message);
+  const [scale, setScale] = useState(1);
 
-  // Scale the fixed 540px card to fit the container width
+  // Calculate scale factor: how big is our container vs the ideal 540px
   useEffect(() => {
-    const updateScale = () => {
+    const update = () => {
       if (containerRef.current) {
-        const containerWidth = containerRef.current.offsetWidth;
-        const scale = Math.min(containerWidth / 540, 1);
-        containerRef.current.style.setProperty("--card-scale", String(scale));
+        const w = containerRef.current.offsetWidth;
+        setScale(Math.min(w / 540, 1));
       }
     };
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
   }, []);
 
+  // Helper: scale pixel values relative to 540px base
+  const s = (px: number) => Math.round(px * scale);
+
+  const msgLen = cardData.message.length;
+  const baseMsgFont = msgLen <= 40 ? 24 : msgLen <= 80 ? 20 : msgLen <= 120 ? 18 : msgLen <= 160 ? 16 : 14;
+
   return (
-    <div className="w-full max-w-lg relative z-10 flex flex-col items-center gap-6 animate-fadeIn">
-      {/* Music toggle on card view */}
-      <MusicToggle isPlaying={isPlaying} onToggle={onToggleMusic} />
-      {/* Responsive wrapper — scales the fixed-size card to fit screen */}
+    <div className="w-full max-w-lg relative z-10 flex flex-col items-center gap-4 animate-fadeIn">
+      {/* Card container — fluid, square */}
       <div
         ref={containerRef}
-        style={{
-          width: "100%",
-          maxWidth: 540,
-          aspectRatio: "1 / 1",
-          position: "relative",
-          overflow: "hidden",
-        }}
+        style={{ width: "100%", maxWidth: 540 }}
       >
-        {/* The actual card — always 540x540, scaled via CSS transform on mobile */}
         <div
           ref={cardRef}
           style={{
-            width: 540,
-            height: 540,
-            position: "absolute",
-            top: 0,
-            left: 0,
-            transformOrigin: "top left",
-            transform: "scale(var(--card-scale, 1))",
+            width: "100%",
+            aspectRatio: "1 / 1",
+            position: "relative",
             overflow: "hidden",
+            backgroundColor: "#f5ddd1",
           }}
         >
-        {/* Envelope background image */}
-        <img
-          src="/envelope.jpg"
-          alt=""
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-          }}
-          crossOrigin="anonymous"
-        />
+          {/* Envelope background */}
+          <img
+            src="/envelope.jpg"
+            alt=""
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+            }}
+            crossOrigin="anonymous"
+          />
 
-        {/* ── VALENTINE BRANDING (top-right area) ── */}
-        <div style={{
-          position: "absolute",
-          top: "3%",
-          right: "5%",
-          textAlign: "right",
-          zIndex: 5,
-        }}>
-          <p style={{
-            fontFamily: "'Playfair Display', serif",
-            fontSize: 10,
-            color: "rgba(109,76,111,0.5)",
-            textTransform: "uppercase",
-            letterSpacing: "0.2em",
-          }}>
-            Happy Valentine&apos;s Day
-          </p>
-          <p style={{
-            fontFamily: "'Caveat', cursive",
-            fontSize: 8,
-            color: "rgba(109,76,111,0.35)",
-            marginTop: 1,
-          }}>
-            Seismic Community 2026
-          </p>
-        </div>
-
-        {/* ── LETTER AREA: Receiver + Message ── */}
-        <div style={{
-          position: "absolute",
-          top: "20%",
-          left: "21%",
-          right: "12%",
-          height: "28%",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "flex-start",
-          padding: "8px 16px",
-        }}>
-          {/* Dear Name with avatar */}
+          {/* Valentine branding */}
           <div style={{
+            position: "absolute",
+            top: "3%",
+            right: "5%",
+            textAlign: "right",
+            zIndex: 5,
+          }}>
+            <p style={{
+              fontFamily: "'Playfair Display', serif",
+              fontSize: s(10),
+              color: "rgba(109,76,111,0.5)",
+              textTransform: "uppercase",
+              letterSpacing: "0.2em",
+            }}>
+              Happy Valentine&apos;s Day
+            </p>
+            <p style={{
+              fontFamily: "'Caveat', cursive",
+              fontSize: s(8),
+              color: "rgba(109,76,111,0.35)",
+              marginTop: 1,
+            }}>
+              Seismic Community 2026
+            </p>
+          </div>
+
+          {/* Letter area: Receiver + Message */}
+          <div style={{
+            position: "absolute",
+            top: "20%",
+            left: "21%",
+            right: "12%",
+            height: "28%",
             display: "flex",
-            alignItems: "center",
-            gap: 8,
-            marginBottom: 10,
+            flexDirection: "column",
+            justifyContent: "flex-start",
+            padding: `${s(8)}px ${s(16)}px`,
           }}>
             <div style={{
-              width: 32,
-              height: 32,
+              display: "flex",
+              alignItems: "center",
+              gap: s(8),
+              marginBottom: s(10),
+            }}>
+              <div style={{
+                width: s(32),
+                height: s(32),
+                borderRadius: "50%",
+                border: `${s(2)}px solid rgba(158,123,159,0.4)`,
+                overflow: "hidden",
+                backgroundColor: "rgba(158,123,159,0.08)",
+                flexShrink: 0,
+              }}>
+                <img
+                  src={cardData.receiverAvatar || ""}
+                  alt={cardData.receiverName}
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  crossOrigin="anonymous"
+                />
+              </div>
+              <p style={{
+                fontFamily: "'Caveat', cursive",
+                fontSize: s(20),
+                color: "#3a2040",
+                fontWeight: 700,
+                lineHeight: 1.1,
+              }}>
+                Dear {capitalize(cardData.receiverName)},
+              </p>
+            </div>
+
+            <p style={{
+              fontFamily: "'Caveat', cursive",
+              fontSize: s(baseMsgFont),
+              color: "#3a2040",
+              lineHeight: 1.55,
+              paddingLeft: s(4),
+              width: "80%",
+            }}>
+              {cardData.message}
+            </p>
+          </div>
+
+          {/* Sender info */}
+          <div style={{
+            position: "absolute",
+            top: "70%",
+            left: "70%",
+            transform: "translateX(-50%)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: s(4),
+          }}>
+            <div style={{
+              width: s(44),
+              height: s(44),
               borderRadius: "50%",
-              border: "2px solid rgba(158,123,159,0.4)",
+              border: `${s(2.5)}px solid rgba(255,255,255,0.6)`,
               overflow: "hidden",
-              backgroundColor: "rgba(158,123,159,0.08)",
-              flexShrink: 0,
+              backgroundColor: "rgba(158,123,159,0.1)",
+              boxShadow: `0 ${s(2)}px ${s(10)}px rgba(0,0,0,0.12)`,
             }}>
               <img
-                src={cardData.receiverAvatar || ""}
-                alt={cardData.receiverName}
+                src={cardData.senderAvatar || ""}
+                alt={cardData.senderName}
                 style={{ width: "100%", height: "100%", objectFit: "cover" }}
                 crossOrigin="anonymous"
               />
             </div>
             <p style={{
               fontFamily: "'Caveat', cursive",
-              fontSize: 20,
-              color: "#3a2040",
+              fontSize: s(18),
+              color: "#5a3050",
               fontWeight: 700,
-              lineHeight: 1.1,
+              whiteSpace: "nowrap",
             }}>
-              Dear {capitalize(cardData.receiverName)},
+              With love, {capitalize(cardData.senderName)} ♥
             </p>
           </div>
 
-          {/* Message */}
-          <p style={{
-            fontFamily: "'Caveat', cursive",
-            fontSize: messageFontSize,
-            color: "#3a2040",
-            lineHeight: 1.55,
-            paddingLeft: 4,
-            width: "80%",
-          }}>
-            {cardData.message}
-          </p>
-        </div>
-
-        {/* ── ENVELOPE AREA: Sender info ── */}
-        <div style={{
-          position: "absolute",
-          top: "70%",
-          left: "70%",
-          transform: "translateX(-50%)",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: 4,
-        }}>
+          {/* Bottom branding */}
           <div style={{
-            width: 44,
-            height: 44,
-            borderRadius: "50%",
-            border: "2.5px solid rgba(255,255,255,0.6)",
-            overflow: "hidden",
-            backgroundColor: "rgba(158,123,159,0.1)",
-            boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
+            position: "absolute",
+            bottom: "3%",
+            left: 0,
+            right: 0,
+            textAlign: "center",
           }}>
-            <img
-              src={cardData.senderAvatar || ""}
-              alt={cardData.senderName}
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-              crossOrigin="anonymous"
-            />
+            <p style={{
+              fontFamily: "'Playfair Display', serif",
+              fontSize: s(9),
+              color: "rgba(109,76,111,0.35)",
+              letterSpacing: "0.25em",
+              textTransform: "uppercase",
+            }}>
+              ♥ Would You Be My Valentine? ♥
+            </p>
           </div>
-          <p style={{
-            fontFamily: "'Caveat', cursive",
-            fontSize: 18,
-            color: "#5a3050",
-            fontWeight: 700,
-          }}>
-            With love, {capitalize(cardData.senderName)} ♥
-          </p>
-        </div>
-
-        {/* ── BOTTOM BRANDING ── */}
-        <div style={{
-          position: "absolute",
-          bottom: "3%",
-          left: 0,
-          right: 0,
-          textAlign: "center",
-        }}>
-          <p style={{
-            fontFamily: "'Playfair Display', serif",
-            fontSize: 9,
-            color: "rgba(109,76,111,0.35)",
-            letterSpacing: "0.25em",
-            textTransform: "uppercase",
-          }}>
-            ♥ Would You Be My Valentine? ♥
-          </p>
-        </div>
         </div>
       </div>
 
