@@ -520,7 +520,7 @@ function CardStep({
           </div>
 
           {/* Sender info */}
-          <div style={{ position: "absolute", top: "72%", left: "70%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: s(4) }}>
+          <div style={{ position: "absolute", top: "70%", left: "70%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: s(4) }}>
             <div style={{
               width: s(44), height: s(44), borderRadius: "50%", border: "2.5px solid rgba(255,255,255,0.6)",
               overflow: "hidden", backgroundColor: "rgba(158,123,159,0.1)", boxShadow: "0 2px 10px rgba(0,0,0,0.12)", position: "relative",
