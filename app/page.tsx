@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { toJpeg } from "html-to-image";
 
 interface CardData {
   senderUsername: string;
@@ -24,6 +23,178 @@ function capitalize(name: string): string {
     .join(" ");
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   LOAD IMAGE HELPER — returns an Image that can be drawn on canvas
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`Failed to load: ${src}`));
+    img.src = src;
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   CANVAS RENDERER — draws the entire card on a 1080x1080 canvas
+   No html-to-image. Works on every device.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function wrapText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight: number
+): number {
+  const words = text.split(" ");
+  let line = "";
+  let currentY = y;
+
+  for (let i = 0; i < words.length; i++) {
+    const testLine = line + words[i] + " ";
+    const metrics = ctx.measureText(testLine);
+    if (metrics.width > maxWidth && i > 0) {
+      ctx.fillText(line.trim(), x, currentY);
+      line = words[i] + " ";
+      currentY += lineHeight;
+    } else {
+      line = testLine;
+    }
+  }
+  ctx.fillText(line.trim(), x, currentY);
+  return currentY;
+}
+
+function drawCircleImage(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  cx: number,
+  cy: number,
+  radius: number,
+  borderWidth: number,
+  borderColor: string
+) {
+  // Border
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius + borderWidth, 0, Math.PI * 2);
+  ctx.fillStyle = borderColor;
+  ctx.fill();
+
+  // Clip and draw image
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.drawImage(img, cx - radius, cy - radius, radius * 2, radius * 2);
+  ctx.restore();
+}
+
+async function renderCardToCanvas(cardData: CardData): Promise<HTMLCanvasElement> {
+  const SIZE = 1080; // 2x for retina
+  const canvas = document.createElement("canvas");
+  canvas.width = SIZE;
+  canvas.height = SIZE;
+  const ctx = canvas.getContext("2d")!;
+
+  // Scale factor (design is based on 540, canvas is 1080)
+  const S = 2;
+
+  // 1. Draw envelope background
+  try {
+    const envelope = await loadImage("/envelope.jpg");
+    ctx.drawImage(envelope, 0, 0, SIZE, SIZE);
+  } catch {
+    // Fallback color if image fails
+    ctx.fillStyle = "#f5ddd1";
+    ctx.fillRect(0, 0, SIZE, SIZE);
+  }
+
+  // 2. Top-right branding: "HAPPY VALENTINE'S DAY"
+  ctx.fillStyle = "rgba(109,76,111,0.5)";
+  ctx.font = `${10 * S}px 'Playfair Display', serif`;
+  ctx.textAlign = "right";
+  ctx.letterSpacing = `${0.2 * S}em`;
+  ctx.fillText("HAPPY VALENTINE'S DAY", SIZE - 27 * S, 22 * S);
+
+  ctx.fillStyle = "rgba(109,76,111,0.35)";
+  ctx.font = `${8 * S}px 'Caveat', cursive`;
+  ctx.letterSpacing = "0em";
+  ctx.fillText("Seismic Community 2026", SIZE - 27 * S, 32 * S);
+
+  ctx.textAlign = "left";
+
+  // 3. Receiver avatar
+  const receiverAvatarX = 145 * S;
+  const receiverAvatarY = 135 * S;
+  const receiverRadius = 16 * S;
+  try {
+    const receiverImg = await loadImage(cardData.receiverAvatar || "");
+    drawCircleImage(ctx, receiverImg, receiverAvatarX, receiverAvatarY, receiverRadius, 2 * S, "rgba(158,123,159,0.4)");
+  } catch {
+    // Draw placeholder circle
+    ctx.beginPath();
+    ctx.arc(receiverAvatarX, receiverAvatarY, receiverRadius, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(158,123,159,0.15)";
+    ctx.fill();
+  }
+
+  // 4. "Dear Name,"
+  ctx.fillStyle = "#3a2040";
+  ctx.font = `bold ${20 * S}px 'Caveat', cursive`;
+  ctx.fillText(`Dear ${capitalize(cardData.receiverName)},`, 169 * S, 141 * S);
+
+  // 5. Message text (with word wrap)
+  const msgLen = cardData.message.length;
+  const baseFontSize = msgLen <= 40 ? 24 : msgLen <= 80 ? 20 : msgLen <= 120 ? 18 : msgLen <= 160 ? 16 : 14;
+  ctx.font = `${baseFontSize * S}px 'Caveat', cursive`;
+  ctx.fillStyle = "#3a2040";
+  wrapText(
+    ctx,
+    cardData.message,
+    138 * S,
+    177 * S,
+    270 * S, // max width
+    baseFontSize * S * 1.55
+  );
+
+  // 6. Sender avatar
+  const senderAvatarX = 378 * S;
+  const senderAvatarY = 400 * S;
+  const senderRadius = 22 * S;
+  try {
+    const senderImg = await loadImage(cardData.senderAvatar || "");
+    drawCircleImage(ctx, senderImg, senderAvatarX, senderAvatarY, senderRadius, 2.5 * S, "rgba(255,255,255,0.6)");
+  } catch {
+    ctx.beginPath();
+    ctx.arc(senderAvatarX, senderAvatarY, senderRadius, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(158,123,159,0.15)";
+    ctx.fill();
+  }
+
+  // 7. "With love, Name ♥"
+  ctx.fillStyle = "#5a3050";
+  ctx.font = `bold ${18 * S}px 'Caveat', cursive`;
+  ctx.textAlign = "center";
+  ctx.fillText(`With love, ${capitalize(cardData.senderName)} ♥`, senderAvatarX, (410 + 34) * S);
+
+  // 8. Bottom branding
+  ctx.fillStyle = "rgba(109,76,111,0.35)";
+  ctx.font = `${9 * S}px 'Playfair Display', serif`;
+  ctx.letterSpacing = `${0.25 * S}em`;
+  ctx.fillText("♥ WOULD YOU BE MY VALENTINE? ♥", SIZE / 2, SIZE - 16 * S);
+  ctx.letterSpacing = "0em";
+
+  return canvas;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MAIN PAGE
+   ═══════════════════════════════════════════════════════════════════════ */
+
 export default function ValentineCardPage() {
   const [step, setStep] = useState<"form" | "card">("form");
   const [senderUsername, setSenderUsername] = useState("");
@@ -35,7 +206,6 @@ export default function ValentineCardPage() {
   );
   const [cardData, setCardData] = useState<CardData | null>(null);
   const [loading, setLoading] = useState(false);
-  const cardRef = useRef<HTMLDivElement>(null);
 
   // Music
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -43,18 +213,17 @@ export default function ValentineCardPage() {
   const musicStartedRef = useRef(false);
 
   useEffect(() => {
-    // Try autoplay on load (works on desktop usually)
     const audio = new Audio("/music.mp3");
     audio.loop = true;
     audio.volume = 0.4;
     audioRef.current = audio;
 
+    // Try autoplay on load
     audio.play()
       .then(() => { setIsPlaying(true); musicStartedRef.current = true; })
-      .catch(() => {}); // blocked, we'll try on interaction
+      .catch(() => {});
 
-    // On first interaction, start music if it hasn't started yet
-    // iOS requires audio.play() in the SAME call stack as user gesture
+    // Fallback: play on first interaction
     const playOnInteraction = () => {
       if (musicStartedRef.current) return cleanup();
       if (audioRef.current) {
@@ -73,11 +242,7 @@ export default function ValentineCardPage() {
     document.addEventListener("click", playOnInteraction, true);
     document.addEventListener("touchend", playOnInteraction, true);
 
-    return () => {
-      audio.pause();
-      audio.src = "";
-      cleanup();
-    };
+    return () => { audio.pause(); audio.src = ""; cleanup(); };
   }, []);
 
   const toggleMusic = () => {
@@ -123,12 +288,14 @@ export default function ValentineCardPage() {
     setLoading(false);
   };
 
+  // Canvas download — works on every device
   const handleDownload = useCallback(async () => {
-    if (!cardRef.current) return;
+    if (!cardData) return;
     try {
-      const dataUrl = await toJpeg(cardRef.current, { pixelRatio: 2, quality: 0.92 });
+      const canvas = await renderCardToCanvas(cardData);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
       const link = document.createElement("a");
-      link.download = `valentine-seismic-${cardData?.receiverName || "card"}.jpg`;
+      link.download = `valentine-seismic-${cardData.receiverName || "card"}.jpg`;
       link.href = dataUrl;
       link.click();
     } catch (err) {
@@ -149,17 +316,14 @@ export default function ValentineCardPage() {
           onGenerate={handleGenerate} loading={loading}
         />
       ) : (
-        <CardStep
-          cardData={cardData!} cardRef={cardRef}
-          onDownload={handleDownload} onBack={() => setStep("form")}
-        />
+        <CardStep cardData={cardData!} onDownload={handleDownload} onBack={() => setStep("form")} />
       )}
     </main>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   MUSIC TOGGLE
+   MUSIC TOGGLE — small fixed icon top-right
    ═══════════════════════════════════════════════════════════════════════ */
 
 function MusicToggle({ isPlaying, onToggle }: { isPlaying: boolean; onToggle: () => void }) {
@@ -278,48 +442,40 @@ function FormStep({
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   CARD — Fully fluid, no CSS transform. Scales naturally on all screens.
+   CARD PREVIEW (HTML) + DOWNLOAD (Canvas)
+   The preview is just for viewing. Download renders via Canvas API.
    ═══════════════════════════════════════════════════════════════════════ */
 
 function CardStep({
-  cardData, cardRef, onDownload, onBack,
+  cardData, onDownload, onBack,
 }: {
   cardData: CardData;
-  cardRef: React.RefObject<HTMLDivElement | null>;
   onDownload: () => void;
   onBack: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
+  const [cardWidth, setCardWidth] = useState(540);
 
-  // Calculate scale factor: how big is our container vs the ideal 540px
   useEffect(() => {
     const update = () => {
-      if (containerRef.current) {
-        const w = containerRef.current.offsetWidth;
-        setScale(Math.min(w / 540, 1));
-      }
+      if (containerRef.current) setCardWidth(containerRef.current.offsetWidth);
     };
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
 
-  // Helper: scale pixel values relative to 540px base
-  const s = (px: number) => Math.round(px * scale);
+  // Scale helper: design is based on 540px
+  const s = (px: number) => (px / 540) * cardWidth;
 
   const msgLen = cardData.message.length;
   const baseMsgFont = msgLen <= 40 ? 24 : msgLen <= 80 ? 20 : msgLen <= 120 ? 18 : msgLen <= 160 ? 16 : 14;
 
   return (
     <div className="w-full max-w-lg relative z-10 flex flex-col items-center gap-4 animate-fadeIn">
-      {/* Card container — fluid, square */}
-      <div
-        ref={containerRef}
-        style={{ width: "100%", maxWidth: 540 }}
-      >
+      {/* Card preview — fluid, responsive */}
+      <div ref={containerRef} style={{ width: "100%", maxWidth: 540 }}>
         <div
-          ref={cardRef}
           style={{
             width: "100%",
             aspectRatio: "1 / 1",
@@ -332,153 +488,53 @@ function CardStep({
           <img
             src="/envelope.jpg"
             alt=""
-            style={{
-              position: "absolute",
-              inset: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-            }}
-            crossOrigin="anonymous"
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
           />
 
           {/* Valentine branding */}
-          <div style={{
-            position: "absolute",
-            top: "3%",
-            right: "5%",
-            textAlign: "right",
-            zIndex: 5,
-          }}>
-            <p style={{
-              fontFamily: "'Playfair Display', serif",
-              fontSize: s(10),
-              color: "rgba(109,76,111,0.5)",
-              textTransform: "uppercase",
-              letterSpacing: "0.2em",
-            }}>
+          <div style={{ position: "absolute", top: "3%", right: "5%", textAlign: "right", zIndex: 5 }}>
+            <p style={{ fontFamily: "'Playfair Display', serif", fontSize: s(10), color: "rgba(109,76,111,0.5)", textTransform: "uppercase", letterSpacing: "0.2em" }}>
               Happy Valentine&apos;s Day
             </p>
-            <p style={{
-              fontFamily: "'Caveat', cursive",
-              fontSize: s(8),
-              color: "rgba(109,76,111,0.35)",
-              marginTop: 1,
-            }}>
+            <p style={{ fontFamily: "'Caveat', cursive", fontSize: s(8), color: "rgba(109,76,111,0.35)", marginTop: 1 }}>
               Seismic Community 2026
             </p>
           </div>
 
-          {/* Letter area: Receiver + Message */}
-          <div style={{
-            position: "absolute",
-            top: "20%",
-            left: "21%",
-            right: "12%",
-            height: "28%",
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "flex-start",
-            padding: `${s(8)}px ${s(16)}px`,
-          }}>
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              gap: s(8),
-              marginBottom: s(10),
-            }}>
+          {/* Letter area */}
+          <div style={{ position: "absolute", top: "22%", left: "22%", right: "12%", height: "28%", display: "flex", flexDirection: "column", justifyContent: "flex-start", padding: `${s(8)}px ${s(16)}px` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: s(8), marginBottom: s(12) }}>
               <div style={{
-                width: s(32),
-                height: s(32),
-                borderRadius: "50%",
-                border: `${s(2)}px solid rgba(158,123,159,0.4)`,
-                overflow: "hidden",
-                backgroundColor: "rgba(158,123,159,0.08)",
-                flexShrink: 0,
+                width: s(32), height: s(32), borderRadius: "50%", border: "2px solid rgba(158,123,159,0.4)",
+                overflow: "hidden", backgroundColor: "rgba(158,123,159,0.08)", flexShrink: 0, position: "relative",
               }}>
-                <img
-                  src={cardData.receiverAvatar || ""}
-                  alt={cardData.receiverName}
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                  crossOrigin="anonymous"
-                />
+                <img src={cardData.receiverAvatar || ""} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
               </div>
-              <p style={{
-                fontFamily: "'Caveat', cursive",
-                fontSize: s(20),
-                color: "#3a2040",
-                fontWeight: 700,
-                lineHeight: 1.1,
-              }}>
+              <p style={{ fontFamily: "'Caveat', cursive", fontSize: s(20), color: "#3a2040", fontWeight: 700, lineHeight: 1.1 }}>
                 Dear {capitalize(cardData.receiverName)},
               </p>
             </div>
-
-            <p style={{
-              fontFamily: "'Caveat', cursive",
-              fontSize: s(baseMsgFont),
-              color: "#3a2040",
-              lineHeight: 1.55,
-              paddingLeft: s(4),
-              width: "80%",
-            }}>
+            <p style={{ fontFamily: "'Caveat', cursive", fontSize: s(baseMsgFont), color: "#3a2040", lineHeight: 1.55, paddingLeft: s(4), width: "80%" }}>
               {cardData.message}
             </p>
           </div>
 
           {/* Sender info */}
-          <div style={{
-            position: "absolute",
-            top: "70%",
-            left: "70%",
-            transform: "translateX(-50%)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: s(4),
-          }}>
+          <div style={{ position: "absolute", top: "72%", left: "70%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: s(4) }}>
             <div style={{
-              width: s(44),
-              height: s(44),
-              borderRadius: "50%",
-              border: `${s(2.5)}px solid rgba(255,255,255,0.6)`,
-              overflow: "hidden",
-              backgroundColor: "rgba(158,123,159,0.1)",
-              boxShadow: `0 ${s(2)}px ${s(10)}px rgba(0,0,0,0.12)`,
+              width: s(44), height: s(44), borderRadius: "50%", border: "2.5px solid rgba(255,255,255,0.6)",
+              overflow: "hidden", backgroundColor: "rgba(158,123,159,0.1)", boxShadow: "0 2px 10px rgba(0,0,0,0.12)", position: "relative",
             }}>
-              <img
-                src={cardData.senderAvatar || ""}
-                alt={cardData.senderName}
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                crossOrigin="anonymous"
-              />
+              <img src={cardData.senderAvatar || ""} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             </div>
-            <p style={{
-              fontFamily: "'Caveat', cursive",
-              fontSize: s(18),
-              color: "#5a3050",
-              fontWeight: 700,
-              whiteSpace: "nowrap",
-            }}>
+            <p style={{ fontFamily: "'Caveat', cursive", fontSize: s(18), color: "#5a3050", fontWeight: 700, whiteSpace: "nowrap" }}>
               With love, {capitalize(cardData.senderName)} ♥
             </p>
           </div>
 
           {/* Bottom branding */}
-          <div style={{
-            position: "absolute",
-            bottom: "3%",
-            left: 0,
-            right: 0,
-            textAlign: "center",
-          }}>
-            <p style={{
-              fontFamily: "'Playfair Display', serif",
-              fontSize: s(9),
-              color: "rgba(109,76,111,0.35)",
-              letterSpacing: "0.25em",
-              textTransform: "uppercase",
-            }}>
+          <div style={{ position: "absolute", bottom: "3%", left: 0, right: 0, textAlign: "center" }}>
+            <p style={{ fontFamily: "'Playfair Display', serif", fontSize: s(9), color: "rgba(109,76,111,0.35)", letterSpacing: "0.25em", textTransform: "uppercase" }}>
               ♥ Would You Be My Valentine? ♥
             </p>
           </div>
